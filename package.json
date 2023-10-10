@@ -30,8 +30,12 @@
     "lint:fix": "yarn lint:eslint --fix && yarn lint:misc --write"
   },
   "dependencies": {
+    "@ethereumjs/util": "^9.0.0",
+    "@metamask/eth-sig-util": "^7.0.0",
+    "@metamask/utils": "^8.1.0",
     "chai": "^4.3.4",
     "eth-sig-util": "^3.0.1",
+    "ethereum-cryptography": "^2.1.2",
     "ethereumjs-tx": "^2.1.2",
     "ethereumjs-util": "^7.0.9",
     "ethereumjs-wallet": "^1.0.2",
