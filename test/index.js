@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const ethUtil = require('ethereumjs-util');
+const newEthUtil = require('@ethereumjs/util');
 const sigUtil = require('eth-sig-util');
 const { Transaction: EthereumTx } = require('ethereumjs-tx');
 const { TransactionFactory } = require('@ethereumjs/tx');
@@ -178,16 +179,20 @@ describe('simple-keyring', () => {
 
   describe('#getAccounts', () => {
     it('calls getAddress on each wallet', async () => {
-      // Push a mock wallet
-      const desiredOutput = '0x18a3462427bcc9133bb46e88bcbe39cd7ef0e761';
+      const desiredOutput = '0x410264A247892c3b2912AeE58236036A82CA209e';
       keyring.wallets.push({
-        getAddress() {
-          return ethUtil.toBuffer(desiredOutput);
-        },
+        publicKey: newEthUtil.importPublic(
+          newEthUtil.hexToBytes(
+            '0x0220381189b226eae955cf7331b649be61b6ec55ea678cb30c7371e9e07dc200bd',
+          ),
+        ),
+        privateKey: newEthUtil.hexToBytes(
+          '0x504560704904af362cab963188f571bccb1498f6ab5113b6bd8d76b6c53a963e',
+        ),
       });
 
       const output = await keyring.getAccounts();
-      assert.equal(output[0], desiredOutput);
+      assert.equal(output[0].toLowerCase(), desiredOutput.toLowerCase());
       assert.equal(output.length, 1);
     });
   });

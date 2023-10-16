@@ -1,9 +1,34 @@
 const { EventEmitter } = require('events');
-const Wallet = require('ethereumjs-wallet').default;
-const ethUtil = require('ethereumjs-util');
+// const Wallet = require('ethereumjs-wallet').default;
+const ethUtil = require('@ethereumjs/util');
+const sigUtil = require('@metamask/eth-sig-util');
+const { keccak256 } = require('ethereum-cryptography/keccak');
+const { getRandomBytesSync } = require('ethereum-cryptography/random');
 
 const type = 'Simple Key Pair';
-const sigUtil = require('eth-sig-util');
+
+function generateKey() {
+  const privateKey = getRandomBytesSync(32);
+
+  if (!ethUtil.isValidPrivate(privateKey)) {
+    throw new Error(
+      'Private key does not satisfy the curve requirements (ie. it is invalid)',
+    );
+  }
+  return privateKey;
+}
+
+function add0x(hexadecimal) {
+  if (hexadecimal.startsWith('0x')) {
+    return hexadecimal;
+  }
+
+  if (hexadecimal.startsWith('0X')) {
+    return `0x${hexadecimal.substring(2)}`;
+  }
+
+  return `0x${hexadecimal}`;
+}
 
 class SimpleKeyring extends EventEmitter {
   constructor(opts) {
@@ -15,18 +40,23 @@ class SimpleKeyring extends EventEmitter {
 
   serialize() {
     return Promise.resolve(
-      this.wallets.map((w) => w.getPrivateKey().toString('hex')),
+      this.wallets.map((w) =>
+        ethUtil.stripHexPrefix(ethUtil.bytesToHex(w.privateKey)),
+      ),
     );
   }
 
   deserialize(privateKeys = []) {
     return new Promise((resolve, reject) => {
       try {
-        this.wallets = privateKeys.map((privateKey) => {
-          const stripped = ethUtil.stripHexPrefix(privateKey);
-          const buffer = Buffer.from(stripped, 'hex');
-          const wallet = Wallet.fromPrivateKey(buffer);
-          return wallet;
+        this.wallets = privateKeys.map((hexPrivateKey) => {
+          let privk = hexPrivateKey;
+          if (!privk.startsWith('0x')) {
+            privk = ethUtil.addHexPrefix(privk);
+          }
+          const privateKey = ethUtil.hexToBytes(privk);
+          const publicKey = ethUtil.privateToPublic(privateKey);
+          return { privateKey, publicKey };
         });
       } catch (e) {
         reject(e);
@@ -38,25 +68,31 @@ class SimpleKeyring extends EventEmitter {
   addAccounts(n = 1) {
     const newWallets = [];
     for (let i = 0; i < n; i++) {
-      newWallets.push(Wallet.generate());
+      const privateKey = generateKey();
+      newWallets.push({
+        privateKey,
+        publicKey: ethUtil.privateToPublic(privateKey),
+      });
     }
     this.wallets = this.wallets.concat(newWallets);
-    const hexWallets = newWallets.map((w) =>
-      ethUtil.bufferToHex(w.getAddress()),
+    const hexWallets = newWallets.map(({ publicKey }) =>
+      add0x(ethUtil.bytesToHex(ethUtil.publicToAddress(publicKey))),
     );
     return Promise.resolve(hexWallets);
   }
 
   getAccounts() {
     return Promise.resolve(
-      this.wallets.map((w) => ethUtil.bufferToHex(w.getAddress())),
+      this.wallets.map(({ publicKey }) => {
+        return add0x(ethUtil.bytesToHex(ethUtil.publicToAddress(publicKey)));
+      }),
     );
   }
 
   // tx is an instance of the ethereumjs-transaction class.
   signTransaction(address, tx, opts = {}) {
-    const privKey = this.getPrivateKeyFor(address, opts);
-    const signedTx = tx.sign(privKey);
+    const privKey = ethUtil.addHexPrefix(this.getPrivateKeyFor(address, opts));
+    const signedTx = tx.sign(Buffer.from(privKey, 'hex'));
     // Newer versions of Ethereumjs-tx are immutable and return a new tx object
     return Promise.resolve(signedTx === undefined ? tx : signedTx);
   }
@@ -82,17 +118,26 @@ class SimpleKeyring extends EventEmitter {
 
   // For personal_sign, we need to prefix the message:
   signPersonalMessage(address, msgHex, opts = {}) {
-    const privKey = this.getPrivateKeyFor(address, opts);
-    const privKeyBuffer = Buffer.from(privKey, 'hex');
-    const sig = sigUtil.personalSign(privKeyBuffer, { data: msgHex });
+    const privKey = ethUtil.stripHexPrefix(
+      ethUtil.bytesToHex(this.getPrivateKeyFor(address, opts)),
+    );
+    const sig = sigUtil.personalSign({
+      privateKey: privKey,
+      data: msgHex,
+    });
     return Promise.resolve(sig);
   }
 
   // For eth_decryptMessage:
   decryptMessage(withAccount, encryptedData) {
     const wallet = this._getWalletForAccount(withAccount);
-    const privKey = ethUtil.stripHexPrefix(wallet.getPrivateKey());
-    const sig = sigUtil.decrypt(encryptedData, privKey);
+    const privKey = ethUtil.stripHexPrefix(
+      ethUtil.bytesToHex(wallet.privateKey),
+    );
+    const sig = sigUtil.decrypt({
+      encryptedData,
+      privateKey: privKey,
+    });
     return Promise.resolve(sig);
   }
 
@@ -112,28 +157,48 @@ class SimpleKeyring extends EventEmitter {
 
   // personal_signTypedData, signs data along with the schema
   signTypedData_v1(withAccount, typedData, opts = {}) {
-    const privKey = this.getPrivateKeyFor(withAccount, opts);
-    const sig = sigUtil.signTypedDataLegacy(privKey, { data: typedData });
+    const privKey = ethUtil.stripHexPrefix(
+      ethUtil.bytesToHex(this.getPrivateKeyFor(withAccount, opts)),
+    );
+    const sig = sigUtil.signTypedData({
+      privateKey: Buffer.from(privKey, 'hex'),
+      data: typedData,
+      version: sigUtil.SignTypedDataVersion.V1,
+    });
     return Promise.resolve(sig);
   }
 
   // personal_signTypedData, signs data along with the schema
   signTypedData_v3(withAccount, typedData, opts = {}) {
-    const privKey = this.getPrivateKeyFor(withAccount, opts);
-    const sig = sigUtil.signTypedData(privKey, { data: typedData });
+    const privKey = ethUtil.stripHexPrefix(
+      ethUtil.bytesToHex(this.getPrivateKeyFor(withAccount, opts)),
+    );
+    const sig = sigUtil.signTypedData({
+      privateKey: Buffer.from(privKey, 'hex'),
+      data: typedData,
+      version: sigUtil.SignTypedDataVersion.V3,
+    });
     return Promise.resolve(sig);
   }
 
   // personal_signTypedData, signs data along with the schema
   signTypedData_v4(withAccount, typedData, opts = {}) {
-    const privKey = this.getPrivateKeyFor(withAccount, opts);
-    const sig = sigUtil.signTypedData_v4(privKey, { data: typedData });
+    const privKey = ethUtil.stripHexPrefix(
+      ethUtil.bytesToHex(this.getPrivateKeyFor(withAccount, opts)),
+    );
+    const sig = sigUtil.signTypedData({
+      privateKey: Buffer.from(privKey, 'hex'),
+      data: typedData,
+      version: sigUtil.SignTypedDataVersion.V4,
+    });
     return Promise.resolve(sig);
   }
 
   // get public key for nacl
   getEncryptionPublicKey(withAccount, opts = {}) {
-    const privKey = this.getPrivateKeyFor(withAccount, opts);
+    const privKey = ethUtil.stripHexPrefix(
+      ethUtil.bytesToHex(this.getPrivateKeyFor(withAccount, opts)),
+    );
     const publicKey = sigUtil.getEncryptionPublicKey(privKey);
     return Promise.resolve(publicKey);
   }
@@ -143,8 +208,7 @@ class SimpleKeyring extends EventEmitter {
       throw new Error('Must specify address.');
     }
     const wallet = this._getWalletForAccount(address, opts);
-    const privKey = ethUtil.toBuffer(wallet.getPrivateKey());
-    return privKey;
+    return wallet.privateKey;
   }
 
   // returns an address specific to an app
@@ -158,7 +222,7 @@ class SimpleKeyring extends EventEmitter {
           withAppKeyOrigin: origin,
         });
         const appKeyAddress = sigUtil.normalize(
-          wallet.getAddress().toString('hex'),
+          ethUtil.bytesToHex(ethUtil.publicToAddress(wallet.publicKey)),
         );
         return resolve(appKeyAddress);
       } catch (e) {
@@ -170,22 +234,27 @@ class SimpleKeyring extends EventEmitter {
   // exportAccount should return a hex-encoded private key:
   exportAccount(address, opts = {}) {
     const wallet = this._getWalletForAccount(address, opts);
-    return Promise.resolve(wallet.getPrivateKey().toString('hex'));
+    return Promise.resolve(ethUtil.bytesToHex(wallet.privateKey));
   }
 
   removeAccount(address) {
     if (
       !this.wallets
-        .map((w) => ethUtil.bufferToHex(w.getAddress()).toLowerCase())
+        .map(({ publicKey }) =>
+          add0x(
+            ethUtil.bytesToHex(ethUtil.publicToAddress(publicKey)),
+          ).toLowerCase(),
+        )
         .includes(address.toLowerCase())
     ) {
       throw new Error(`Address ${address} not found in this keyring`);
     }
 
     this.wallets = this.wallets.filter(
-      (w) =>
-        ethUtil.bufferToHex(w.getAddress()).toLowerCase() !==
-        address.toLowerCase(),
+      ({ publicKey }) =>
+        add0x(
+          ethUtil.bytesToHex(ethUtil.publicToAddress(publicKey)),
+        ).toLowerCase() !== address.toLowerCase(),
     );
   }
 
@@ -195,18 +264,22 @@ class SimpleKeyring extends EventEmitter {
   _getWalletForAccount(account, opts = {}) {
     const address = sigUtil.normalize(account);
     let wallet = this.wallets.find(
-      (w) => ethUtil.bufferToHex(w.getAddress()) === address,
+      ({ publicKey }) =>
+        add0x(
+          ethUtil.bytesToHex(ethUtil.publicToAddress(publicKey)),
+        ).toLowerCase() === address.toLowerCase(),
     );
     if (!wallet) {
       throw new Error('Simple Keyring - Unable to find matching address.');
     }
 
     if (opts.withAppKeyOrigin) {
-      const privKey = wallet.getPrivateKey();
+      const { privateKey } = wallet;
       const appKeyOriginBuffer = Buffer.from(opts.withAppKeyOrigin, 'utf8');
-      const appKeyBuffer = Buffer.concat([privKey, appKeyOriginBuffer]);
-      const appKeyPrivKey = ethUtil.keccak(appKeyBuffer, 256);
-      wallet = Wallet.fromPrivateKey(appKeyPrivKey);
+      const appKeyBuffer = Buffer.concat([privateKey, appKeyOriginBuffer]);
+      const appKeyPrivateKey = keccak256(appKeyBuffer);
+      const appKeyPublicKey = ethUtil.privateToPublic(appKeyPrivateKey);
+      wallet = { privateKey: appKeyPrivateKey, publicKey: appKeyPublicKey };
     }
 
     return wallet;
