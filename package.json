@@ -1,6 +1,6 @@
 {
   "name": "@rabby-wallet/eth-simple-keyring",
-  "version": "5.0.1",
+  "version": "5.1.0",
   "description": "A simple standard interface for a series of Ethereum private keys.",
   "keywords": [
     "ethereum",
@@ -39,6 +39,7 @@
     "ethereumjs-tx": "^2.1.2",
     "ethereumjs-util": "^7.0.9",
     "ethereumjs-wallet": "^1.0.2",
+    "plume-sig": "^2.0.3",
     "randombytes": "^2.1.0"
   },
   "devDependencies": {

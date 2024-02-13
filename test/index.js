@@ -7,6 +7,7 @@ const sigUtil = require('eth-sig-util');
 const { Transaction: EthereumTx } = require('ethereumjs-tx');
 const { TransactionFactory } = require('@ethereumjs/tx');
 const { expect } = require('chai');
+const { isHexString } = require('ethereumjs-util');
 const SimpleKeyring = require('..');
 
 const TYPE_STR = 'Simple Key Pair';
@@ -157,6 +158,32 @@ describe('simple-keyring', () => {
           accountAddress,
           'recovers address from signature correctly',
         );
+      });
+    });
+  });
+
+  describe('#signPlumeMessage', () => {
+    const privateKey =
+      '0x7dd98753d7b4394095de7d176c58128e2ed6ee600abe97c9f6d9fd65015d9b18';
+
+    it('reliably generates PLUMEs', async () => {
+      const localMessage = 'hello there!';
+
+      await keyring.deserialize([privateKey]);
+      await keyring.addAccounts(9);
+      const addresses = await keyring.getAccounts();
+      const signatures = await Promise.all(
+        addresses.map(async (accountAddress) => {
+          return await keyring.signPlumeMessage(accountAddress, localMessage);
+        }),
+      );
+      signatures.forEach((sig) => {
+        assert(isHexString(sig.plume));
+        assert(isHexString(sig.publicKey));
+        assert(isHexString(sig.hashMPKPowR));
+        assert(isHexString(sig.gPowR));
+        assert(isHexString(sig.c));
+        assert(isHexString(sig.s));
       });
     });
   });
