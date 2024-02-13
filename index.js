@@ -4,6 +4,7 @@ const ethUtil = require('@ethereumjs/util');
 const sigUtil = require('@metamask/eth-sig-util');
 const { keccak256 } = require('ethereum-cryptography/keccak');
 const { getRandomBytesSync } = require('ethereum-cryptography/random');
+const { computeAllInputs } = require('plume-sig');
 
 const type = 'Simple Key Pair';
 
@@ -126,6 +127,26 @@ class SimpleKeyring extends EventEmitter {
       data: msgHex,
     });
     return Promise.resolve(sig);
+  }
+
+  // For eth_getPlumeSignature:
+  signPlumeMessage(address, msgUtf8, opts = {}) {
+    const privKey = this.getPrivateKeyFor(address, opts);
+    const { plume, s, publicKey, c, gPowR, hashMPKPowR } = computeAllInputs(
+      msgUtf8,
+      privKey,
+      undefined,
+      2,
+    );
+    const signedPlume = {
+      plume: `0x${plume.toHex(true)}`,
+      publicKey: `0x${Buffer.from(publicKey).toString('hex')}`,
+      hashMPKPowR: `0x${hashMPKPowR.toHex(true)}`,
+      gPowR: `0x${gPowR.toHex(true)}`,
+      c: `0x${c}`,
+      s: `0x${s}`,
+    };
+    return Promise.resolve(signedPlume);
   }
 
   // For eth_decryptMessage:
