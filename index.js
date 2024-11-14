@@ -35,18 +35,34 @@ class SimpleKeyring extends EventEmitter {
     super();
     this.type = type;
     this.wallets = [];
+    this.accounts = [];
     this.deserialize(opts);
   }
 
   serialize() {
-    return Promise.resolve(
-      this.wallets.map((w) =>
+    return Promise.resolve({
+      privateKeys: this.wallets.map((w) =>
         ethUtil.stripHexPrefix(ethUtil.bytesToHex(w.privateKey)),
       ),
-    );
+      accounts: this.accounts,
+    });
   }
 
-  deserialize(privateKeys = []) {
+  deserialize(options = []) {
+    // legacy private key import
+    if (Array.isArray(options)) {
+      this.deserializePrivateKeys(options);
+      return;
+    }
+
+    const { privateKeys, accounts } = options;
+    if (privateKeys) {
+      this.deserializePrivateKeys(privateKeys);
+    }
+    this.accounts = accounts || [];
+  }
+
+  deserializePrivateKeys(privateKeys = []) {
     return new Promise((resolve, reject) => {
       try {
         this.wallets = privateKeys.map((hexPrivateKey) => {
@@ -78,15 +94,21 @@ class SimpleKeyring extends EventEmitter {
     const hexWallets = newWallets.map(({ publicKey }) =>
       add0x(ethUtil.bytesToHex(ethUtil.publicToAddress(publicKey))),
     );
+    this.accounts = this.accounts.concat(hexWallets);
     return Promise.resolve(hexWallets);
   }
 
   getAccounts() {
-    return Promise.resolve(
-      this.wallets.map(({ publicKey }) => {
+    if (this.wallets) {
+      const accounts = this.wallets.map(({ publicKey }) => {
         return add0x(ethUtil.bytesToHex(ethUtil.publicToAddress(publicKey)));
-      }),
-    );
+      });
+
+      this.accounts = accounts;
+      return Promise.resolve(accounts);
+    }
+
+    return Promise.resolve(this.accounts);
   }
 
   // tx is an instance of the ethereumjs-transaction class.
