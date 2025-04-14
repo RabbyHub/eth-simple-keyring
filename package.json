@@ -20,6 +20,7 @@
   "files": [
     "index.js"
   ],
+  "packageManager": "yarn@1.22.22",
   "scripts": {
     "setup": "yarn install && yarn allow-scripts",
     "test": "jest",

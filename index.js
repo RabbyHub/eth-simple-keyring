@@ -59,7 +59,7 @@ class SimpleKeyring extends EventEmitter {
           return { privateKey, publicKey };
         });
       } catch (e) {
-        reject(e);
+        reject(new Error('invalid private key'));
       }
       resolve();
     });
