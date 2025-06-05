@@ -89,6 +89,16 @@ class SimpleKeyring extends EventEmitter {
     );
   }
 
+  signEip7702Authorization(address, authorization, opts = {}) {
+    const privKey = ethUtil.addHexPrefix(this.getPrivateKeyFor(address, opts));
+    return Promise.resolve(
+      sigUtil.signEIP7702Authorization({
+        privateKey: privKey,
+        authorization,
+      }),
+    );
+  }
+
   // tx is an instance of the ethereumjs-transaction class.
   signTransaction(address, tx, opts = {}) {
     const privKey = ethUtil.addHexPrefix(this.getPrivateKeyFor(address, opts));
