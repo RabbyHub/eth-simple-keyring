@@ -1,6 +1,6 @@
 {
   "name": "@rabby-wallet/eth-simple-keyring",
-  "version": "5.0.2",
+  "version": "5.1.0-beta.1",
   "description": "A simple standard interface for a series of Ethereum private keys.",
   "keywords": [
     "ethereum",
@@ -20,7 +20,6 @@
   "files": [
     "index.js"
   ],
-  "packageManager": "yarn@1.22.22",
   "scripts": {
     "setup": "yarn install && yarn allow-scripts",
     "test": "jest",
@@ -32,7 +31,7 @@
   },
   "dependencies": {
     "@ethereumjs/util": "^9.0.0",
-    "@metamask/eth-sig-util": "5.1.0",
+    "@metamask/eth-sig-util": "8.2.0",
     "@metamask/utils": "^8.1.0",
     "chai": "^4.3.4",
     "eth-sig-util": "^3.0.1",
@@ -69,5 +68,6 @@
       "secp256k1": true,
       "@lavamoat/preinstall-always-fail": false
     }
-  }
+  },
+  "packageManager": "yarn@1.22.22"
 }
