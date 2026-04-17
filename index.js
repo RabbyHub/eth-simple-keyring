@@ -4,6 +4,8 @@ const ethUtil = require('@ethereumjs/util');
 const sigUtil = require('@metamask/eth-sig-util');
 const { keccak256 } = require('ethereum-cryptography/keccak');
 const { getRandomBytesSync } = require('ethereum-cryptography/random');
+const { privateKeyToAccount } = require('viem/accounts');
+const { Transaction: TempoTransaction } = require('viem/tempo');
 
 const type = 'Simple Key Pair';
 
@@ -28,6 +30,164 @@ function add0x(hexadecimal) {
   }
 
   return `0x${hexadecimal}`;
+}
+
+function isTempoTransactionType(type) {
+  return type === 118 || type === '0x76' || type === '0X76';
+}
+
+function normalizePrivateKeyHex(privateKey) {
+  let hex;
+
+  if (typeof privateKey === 'string') {
+    hex =
+      privateKey.startsWith('0x') || privateKey.startsWith('0X')
+        ? privateKey.slice(2)
+        : privateKey;
+  } else if (
+    privateKey &&
+    (privateKey instanceof Uint8Array || Buffer.isBuffer(privateKey))
+  ) {
+    hex = ethUtil.stripHexPrefix(ethUtil.bytesToHex(privateKey));
+  } else {
+    throw new Error('invalid private key source');
+  }
+
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+    throw new Error(`invalid private key hex length: ${hex.length}`);
+  }
+
+  return `0x${hex.toLowerCase()}`;
+}
+
+function toBigIntSafe(value) {
+  if (value === null || typeof value === 'undefined') return undefined;
+  if (value === '0x' || value === '0X') return BigInt(0);
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number') return BigInt(value);
+  if (typeof value === 'string' && value.length) {
+    try {
+      return BigInt(value);
+    } catch (e) {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function normalizeHexValue(value) {
+  if (typeof value === 'string') {
+    if (!value.length || value === '0x' || value === '0X') return '0x0';
+    return value;
+  }
+  return value;
+}
+
+function normalizeTempoCalls(tx) {
+  if (Array.isArray(tx.calls) && tx.calls.length) {
+    return tx.calls.map((call) => ({
+      to: call && call.to ? call.to : tx.to,
+      data: call ? call.data : tx.data,
+      value:
+        call && typeof call.value !== 'undefined'
+          ? toBigIntSafe(normalizeHexValue(call.value))
+          : typeof tx.value !== 'undefined'
+          ? toBigIntSafe(normalizeHexValue(tx.value))
+          : BigInt(0),
+    }));
+  }
+
+  return [
+    {
+      to: tx.to,
+      data: tx.data,
+      value:
+        typeof tx.value !== 'undefined'
+          ? toBigIntSafe(normalizeHexValue(tx.value))
+          : BigInt(0),
+    },
+  ];
+}
+
+function normalizeTempoTxForSign(tx) {
+  const nextTx = {
+    ...tx,
+    calls: normalizeTempoCalls(tx || {}),
+  };
+
+  const bigintFields = [
+    'gas',
+    'gasLimit',
+    'gasPrice',
+    'maxFeePerGas',
+    'maxPriorityFeePerGas',
+    'nonce',
+    'nonceKey',
+    'value',
+  ];
+
+  bigintFields.forEach((field) => {
+    if (typeof nextTx[field] === 'undefined') return;
+    const normalized = toBigIntSafe(nextTx[field]);
+    if (typeof normalized === 'undefined') return;
+    nextTx[field] = normalized;
+  });
+
+  if (typeof nextTx.chainId !== 'undefined') {
+    const chainId = Number(nextTx.chainId);
+    if (!Number.isNaN(chainId)) nextTx.chainId = chainId;
+  }
+
+  ['validBefore', 'validAfter'].forEach((field) => {
+    if (typeof nextTx[field] === 'undefined') return;
+    const value = nextTx[field];
+    try {
+      const normalized =
+        typeof value === 'number'
+          ? value
+          : typeof value === 'bigint'
+          ? Number(value)
+          : Number(value);
+      if (!Number.isNaN(normalized)) nextTx[field] = normalized;
+    } catch (e) {
+      // ignore invalid values and keep original payload
+    }
+  });
+
+  return nextTx;
+}
+
+function extractTempoSignatureParts(parsedTx) {
+  const signatureEnvelope =
+    parsedTx && parsedTx.signature ? parsedTx.signature : {};
+  const signature = signatureEnvelope.signature || signatureEnvelope;
+
+  const r = toBigIntSafe(
+    typeof parsedTx.r !== 'undefined' ? parsedTx.r : signature.r,
+  );
+  const s = toBigIntSafe(
+    typeof parsedTx.s !== 'undefined' ? parsedTx.s : signature.s,
+  );
+  const yParity = Number(
+    typeof parsedTx.yParity !== 'undefined'
+      ? parsedTx.yParity
+      : typeof signature.yParity !== 'undefined'
+      ? signature.yParity
+      : typeof parsedTx.v !== 'undefined'
+      ? Number(parsedTx.v) - 27
+      : 0,
+  );
+
+  if (typeof r === 'undefined' || typeof s === 'undefined') {
+    throw new Error('invalid tempo signature from viem');
+  }
+
+  return {
+    r,
+    s,
+    yParity,
+    v: BigInt(yParity + 27),
+  };
 }
 
 class SimpleKeyring extends EventEmitter {
@@ -101,6 +261,27 @@ class SimpleKeyring extends EventEmitter {
 
   // tx is an instance of the ethereumjs-transaction class.
   signTransaction(address, tx, opts = {}) {
+    if (isTempoTransactionType(tx && tx.type)) {
+      const privateKey = normalizePrivateKeyHex(
+        this.getPrivateKeyFor(address, opts),
+      );
+      const account = privateKeyToAccount(privateKey);
+      const tempoTx = normalizeTempoTxForSign(tx || {});
+
+      return account
+        .signTransaction(tempoTx, {
+          serializer: TempoTransaction.serialize,
+        })
+        .then((serializedTransaction) => {
+          const parsed = TempoTransaction.deserialize(serializedTransaction);
+          const signature = extractTempoSignatureParts(parsed);
+          return {
+            ...signature,
+            serializedTransaction,
+          };
+        });
+    }
+
     const privKey = ethUtil.addHexPrefix(this.getPrivateKeyFor(address, opts));
     const signedTx = tx.sign(Buffer.from(privKey, 'hex'));
     // Newer versions of Ethereumjs-tx are immutable and return a new tx object
