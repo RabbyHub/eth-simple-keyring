@@ -27,7 +27,9 @@
     "lint:eslint": "eslint . --cache --ext js,ts",
     "lint:misc": "prettier '**/*.json' '**/*.md' '!CHANGELOG.md' '**/*.yml' --ignore-path .gitignore",
     "lint": "yarn lint:eslint && yarn lint:misc --check",
-    "lint:fix": "yarn lint:eslint --fix && yarn lint:misc --write"
+    "lint:fix": "yarn lint:eslint --fix && yarn lint:misc --write",
+    "yalc:publish": "yalc publish",
+    "yalc:push": "yalc publish --push"
   },
   "dependencies": {
     "@ethereumjs/util": "^9.0.0",
@@ -39,7 +41,8 @@
     "ethereumjs-tx": "^2.1.2",
     "ethereumjs-util": "^7.0.9",
     "ethereumjs-wallet": "^1.0.2",
-    "randombytes": "^2.1.0"
+    "randombytes": "^2.1.0",
+    "viem": "2.47.6"
   },
   "devDependencies": {
     "@ethereumjs/tx": "^3.1.1",
